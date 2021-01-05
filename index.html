@@ -3,18 +3,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
 <script src="twgl-full.min.js"></script>
 <script src="dat.gui.min.js"></script>
+<script src="seedrandom.min.js"></script>
 <script src="ca.js" type="module"></script>
-
-<!-- Global site tag (gtag.js) - Google Analytics -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=UA-15552566-1"></script>
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-
-gtag('config', 'UA-15552566-1');
-</script>
-
 
 <style>
 html, body {
@@ -99,9 +89,6 @@ a:visited {
 <button id="fsButton">Fullscreen</button>
 
 
-<!-- <img id="icons" src="icons.jpeg"></img><br>
-<pre id="log"></pre> -->
-
 <script type="module">
   import { CA } from "./ca.js"
 
@@ -150,13 +137,31 @@ a:visited {
   gui.add(param, 'stepPerFrame', 0, 6);
   gui.add(param, 'paintMode', 0, 6);
 
+  const query = new URLSearchParams(location.search);
+  const seed = parseInt(query.get("seed"));
+  if (seed) Math.seedrandom(seed);
+  const page = parseInt(query.get("page"));
+  
   fetch('models.json').then(r => r.json()).then(models => {
     const onready = ()=>{
-      if (window.location.search == '?frame') {
+      if (page && seed) {
         param.active = false;
-        for (let i=0; i<200; ++i) ca.step();
+        const pageModels = [132, 149, 134, 168, 104];
+        ca.paint(0, 0, -1, pageModels[page-1]);
+        ca.disturb();
+
+        for (let i=0; i<400; ++i) ca.step();
         $('#fsButton').style.display = "none";
         $('#info').style.display = 'none';
+        canvas.width = 2412;
+        canvas.height = 3074;
+        const viewSize = [canvas.width, canvas.height];
+        twgl.bindFramebufferInfo(gl);
+        ca.draw(viewSize);
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL("image/png");
+        a.download = seed + '_' + page + '.png';
+        a.click();
       }
     };
     const ca = new CA(gl, models, [160, 160], gui, onready);
@@ -272,14 +277,9 @@ a:visited {
     }
     gui.add(param, 'benchmark');
 
-    let lastStepTime = 0;
     function render() {
       if (param.active) {
-        const t = Date.now();
-        if (t-lastStepTime > 20 ) {
-          ca.step();
-          lastStepTime = t;
-        }
+        ca.step();
       }
       
       const devicePixelRatio = window.devicePixelRatio || 1;
@@ -292,9 +292,6 @@ a:visited {
 
       requestAnimationFrame(render);
     }
-
-
-    //requestIdleCallback(idle);
 
     requestAnimationFrame(render);
   })
