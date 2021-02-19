@@ -6,6 +6,16 @@
 <script src="seedrandom.min.js"></script>
 <script src="ca.js" type="module"></script>
 
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-15552566-1"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+
+gtag('config', 'UA-15552566-1');
+</script>
+
 <style>
 html, body {
   margin: 0px;
@@ -227,7 +237,7 @@ a:visited {
             ca.paint(0, 0, -1, i);
             ca.disturb();
             console.log(i);
-            //window.location.hash = i;
+            window.location.hash = i;
         }
       }
       gesture = null;
