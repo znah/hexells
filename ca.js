@@ -174,6 +174,7 @@ const PREFIX = `
     uniform vec2 u_viewSize;
 
     float screen2hex(vec2 xy, out vec2 cellXY, out vec2 p) {
+        xy /= u_viewSize;
         xy.y = 1.0-xy.y;
         vec2 normViewSize = u_viewSize/length(u_viewSize);
         xy = (xy*0.85+0.25) * normViewSize;
@@ -198,13 +199,26 @@ const PROGRAMS = {
 
     void main() {
         vec2 cellXY, p;
-        float zoom = screen2hex(u_pos/u_viewSize, cellXY, p);
+        float zoom = screen2hex(u_pos, cellXY, p);
         cellXY = mod(cellXY, u_output.size);
         vec2 diff = abs(getOutputXY()-cellXY-0.5);
         diff = min(diff, u_output.size-diff);
         if (u_r>0.0 && length(diff)>=80.0/zoom)
           discard;
         setOutput(u_brush);
+    }`,
+    peek: `
+    uniform vec2 u_pos;
+
+    void main() {
+        vec2 xy = getOutputXY();
+        float channel = floor(mod(xy.x, u_input.depth4));
+        xy.x = floor(xy.x/u_input.depth4)+0.5;
+        vec2 outSize = u_output.size/vec2(u_input.depth4, 1.0);
+        vec2 lookupPos = u_pos+(xy-outSize*0.5)*u_viewSize*0.005;
+        vec2 cellXY, p;
+        float zoom = screen2hex(lookupPos, cellXY, p);
+        setOutput(u_input_read(cellXY, channel));
     }`,
     align: `
     uniform float u_init;
@@ -401,7 +415,7 @@ const PROGRAMS = {
             gl_FragColor.a = 1.0;
         } else {
             vec2 cellXY, p;
-            float zoom = screen2hex(xy, cellXY, p);
+            float zoom = screen2hex(xy*u_viewSize, cellXY, p);
             cellXY += 0.5;
 
             vec3 rgb = u_input_read(cellXY, 0.0).rgb/2.0+0.5;
@@ -568,7 +582,9 @@ export class CA {
         const perception_n = this.layers[0].in_n;
         const lastLayer = this.layers[this.layers.length-1];
         const channel_n = lastLayer.out_n;
+        this.channel_n = channel_n;
         const stateQuantization = lastLayer.quantScaleZero;
+        const peekD = 4;
         this.buf = {
             control: createTensor(gl, gridW, gridH, 4, [255.0, 0.0]),
             align: createTensor(gl, gridW, gridH, 4, [2.0, 127.0 / 255.0]),
@@ -576,7 +592,13 @@ export class CA {
             state: createTensor(gl, gridW, gridH, channel_n, stateQuantization),
             newState: createTensor(gl, gridW, gridH, channel_n, stateQuantization),
             perception: createTensor(gl, gridW, updateH, perception_n, stateQuantization),
+            peek: createTensor(gl, peekD*channel_n/4, peekD, 4, stateQuantization),
         };
+        {
+            const {width, height} = this.buf.peek.fbi;
+            this.peekBuf = new Uint8Array(height*width*4);
+        }
+
         for (let i=0; i<this.layers.length; ++i) {
             const layer = this.layers[i];
             this.buf[`layer${i}`] = createTensor(gl, gridW, updateH, layer.out_n, layer.quantScaleZero);
@@ -675,6 +697,17 @@ export class CA {
         });
     }
 
+    peek(x, y, viewSize) {
+        this.runLayer(this.progs.peek, this.buf.peek, {
+            u_pos: [x, y], u_viewSize: viewSize, u_input: this.buf.state
+        });
+        const {width, height} = this.buf.peek.fbi;
+        const gl = this.gl;
+        twgl.bindFramebufferInfo(gl, this.buf.peek.fbi);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this.peekBuf);
+        return this.peekBuf;
+    }
+
     clearCircle(x, y, r, viewSize) {
         viewSize = viewSize || [128, 128];
         self.runLayer(self.progs.paint, this.buf.state, {
@@ -724,7 +757,8 @@ export class CA {
         });
     }
 
-    draw(viewSize) {
+    draw(viewSize, visMode) {
+        visMode ||= this.visMode;
         const gl = this.gl;
 
         gl.useProgram(this.progs.vis.program);
@@ -738,8 +772,8 @@ export class CA {
             u_viewSize: viewSize,
         };
         let inputBuf = this.buf.state;
-        if (this.visMode != 'color') {
-            inputBuf = this.buf[this.visMode];
+        if (visMode != 'color') {
+            inputBuf = this.buf[visMode];
             uniforms.u_raw = 1.0;
         }
         setTensorUniforms(uniforms, 'u_input', inputBuf);
