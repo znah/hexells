@@ -183,37 +183,43 @@ a:visited {
 
     class Sonic {
       constructor() {
-        this.synth = null;
+        // this.synth = null;
         this.state = null;
         this._progress = 0
         //this.synth = new Tone.Synth().toDestination();
+        this.env = new Tone.AmplitudeEnvelope({
+          attack: 0.05,
+          decay: 0.05,
+          sustain: 0.5,
+          release: 0.2
+        }).toDestination(); 
+        const voiceN = 16;
+        this.osc = Array(voiceN).fill().map(()=>new Tone.Oscillator({type:'triangle', volume: -35}).connect(this.env));       
+        Tone.Transport.start();
+
         this.seq = new Tone.Sequence((time, i) => {
           i +=3;
           this._progress = i;
           if (!this.state || i>=12)
             return;
-          const notes = [];
-          for (let j=i; j<12*8; j += 12) {
-            const note = 220*Math.pow(2.0, this.state[j]/128-1.0);
-            notes.push(note);
+          for (let j=0; j<voiceN; ++j) {
+            const note = 220*Math.pow(2.0, this.state[j*12+i]/128-1.0);
+            this.osc[j].frequency.setValueAtTime(note, time);
           }
-          this.synth.triggerAttackRelease(notes, 0.05, time);
+          this.env.triggerAttackRelease(0.05, time);
         }, [...Array(12-3+0).keys()], 1.0/8.0);
-        Tone.Transport.start();
+
       }
 
-      start() {
-        if (!this.synth) {
-          this.synth = new Tone.PolySynth(Tone.Synth).toDestination();
-          this.synth.volume.value = -30;
-          this.synth.maxPolyphony = 128;
-          this.synth.options.oscillator.type = 'triangle';
-        }
+      start(state) {
         if (this.seq.state == 'stopped')
           this.seq.start();
+        this.update(state);
+        this.osc.forEach(o=>o.start());
       }
 
       stop() {
+        this.osc.forEach(o=>o.stop());
         this.seq.stop();
       }
 
