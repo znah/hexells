@@ -173,21 +173,28 @@ const PREFIX = `
 
     uniform vec2 u_viewSize;
 
-    float screen2hex(vec2 xy, out vec2 cellXY, out vec2 p) {
+    struct Hexel {
+        vec2 cellXY;
+        vec2 p;
+        float zoom;
+    };
+
+    Hexel screen2hex(vec2 xy) {
         xy /= u_viewSize;
         xy.y = 1.0-xy.y;
         vec2 normViewSize = u_viewSize/length(u_viewSize);
         xy = (xy*0.85+0.25) * normViewSize;
  
+        Hexel h;
         float nxy = length(xy);
-        float zoom = 4.0/(nxy*nxy);
+        h.zoom = 4.0/(nxy*nxy);
         xy = cmul(xy, xy);
         xy = cmul(xy, xy);
         xy *= 160.0;
         vec4 r = getHex(xy);
-        cellXY = r.zw;
-        p = r.xy;
-        return zoom;
+        h.cellXY = r.zw;
+        h.p = r.xy;
+        return h;
     }
 `;
 
@@ -198,12 +205,11 @@ const PROGRAMS = {
     uniform vec4 u_brush;
 
     void main() {
-        vec2 cellXY, p;
-        float zoom = screen2hex(u_pos, cellXY, p);
-        cellXY = mod(cellXY, u_output.size);
-        vec2 diff = abs(getOutputXY()-cellXY-0.5);
+        Hexel h = screen2hex(u_pos);
+        //h.cellXY = mod(h.cellXY, u_output.size);
+        vec2 diff = abs(getOutputXY()-h.cellXY-0.5);
         diff = min(diff, u_output.size-diff);
-        if (u_r>0.0 && length(diff)>=80.0/zoom)
+        if (u_r>0.0 && length(diff)>=80.0/h.zoom)
           discard;
         setOutput(u_brush);
     }`,
@@ -216,9 +222,8 @@ const PROGRAMS = {
         xy.x = floor(xy.x/u_input.depth4)+0.5;
         vec2 outSize = u_output.size/vec2(u_input.depth4, 1.0);
         vec2 lookupPos = u_pos+(xy-outSize*0.5)*u_viewSize*0.005;
-        vec2 cellXY, p;
-        float zoom = screen2hex(lookupPos, cellXY, p);
-        setOutput(u_input_read(cellXY, channel));
+        Hexel h = screen2hex(lookupPos);
+        setOutput(u_input_read(h.cellXY, channel));
     }`,
     align: `
     uniform float u_init;
@@ -352,10 +357,14 @@ const PROGRAMS = {
       setOutput(state + update);
     }`,
     vis: `
+    ${defInput('u_sonic')}
     uniform float u_raw;
     uniform float u_zoom;
     uniform float u_perceptionCircle, u_arrows;
     uniform float u_devicePixelRatio;
+    uniform vec2 u_sonicPos;
+    uniform float u_sonicProgress;
+
     varying vec2 uv;
 
     float clip01(float x) {
@@ -408,43 +417,69 @@ const PROGRAMS = {
         rgb += clip01((r-length(xy-pos))/r)*0.2;
     }
 
+    float sdBox( in vec2 p, in vec2 b )
+    {
+        vec2 d = abs(p)-b;
+        return length(max(d,0.0)) + min(max(d.x,d.y),0.0);
+    }
+
     void main() {
         vec2 xy = vec2(uv.x, 1.0-uv.y);
         if (u_raw > 0.5) {
             gl_FragColor = texture2D(u_input_tex, xy);
             gl_FragColor.a = 1.0;
         } else {
-            vec2 cellXY, p;
-            float zoom = screen2hex(xy*u_viewSize, cellXY, p);
-            cellXY += 0.5;
+            vec2 screenPos = xy*u_viewSize;
+            Hexel h = screen2hex(screenPos);
+            vec2 p = h.p;
+            h.cellXY += 0.5;
 
-            vec3 rgb = u_input_read(cellXY, 0.0).rgb/2.0+0.5;
-            if (4.0<zoom) {
-                vec2 dir = getCellDirection(floor(cellXY)+0.5);
+            vec3 rgb = u_input_read(h.cellXY, 0.0).rgb/2.0+0.5;
+            if (4.0<h.zoom) {
+                vec2 dir = getCellDirection(floor(h.cellXY)+0.5);
                 float s = dir.x, c = dir.y;
-                float fade = clip01((zoom-4.0)/4.0);
+                float fade = clip01((h.zoom-4.0)/4.0);
                 float r = clip01((1.0-hex(p))*8.0);
                 r = pow(r, 0.2);
                 rgb *= mix(1.0, r, fade);
 
                 p = mat2(c, s, -s, c) * p;    
 
-                if (12.0 < zoom) {
+                if (12.0 < h.zoom) {
                     float da = PI/12.0;
                     float a = -da;
                     vec4 v4;
                     vec3 spots;
                     for (float ch=0.0; ch<2.5; ++ch) {
-                        v4 = (u_input_read01(cellXY, ch)-127.0/255.0)*2.0;
+                        v4 = (u_input_read01(h.cellXY, ch)-127.0/255.0)*2.0;
                         spot(ang2vec(a+=da), v4.x, p, spots);
                         spot(ang2vec(a+=da), v4.y, p, spots);
                         spot(ang2vec(a+=da), v4.z, p, spots);
                         spot(ang2vec(a+=da), v4.w, p, spots);
                     }
-                    spots *= clip01((zoom-12.0)/3.0);
+                    spots *= clip01((h.zoom-12.0)/3.0);
                     rgb += spots;
                 }
             } 
+
+            if (u_sonicPos.x >= 0.0) {
+                const float w=120.0, h=60.0;
+                vec2 p = screenPos-u_sonicPos+vec2(0.5*w, h*1.6);
+                float box = sdBox(p-vec2(w, h)*0.5, vec2(w, h)*0.5);
+                if (box<10.0) 
+                {
+                    float alpha = smoothstep(10.0, 0.0, box)*0.8;
+                    vec3 c = vec3(peak(box-5.0, 2.0));
+                    float chn = u_input.depth-3.0;
+                    float ch = floor(3.0+p.x/w*chn);
+                    vec4 v4 = u_sonic_read01(vec2(0.5+floor(ch/4.0), 0.5), 0.0);
+                    float v = getElement(v4, mod(ch, 4.0));
+                    float b = float(ch==u_sonicProgress)*0.8+0.7;
+                    vec3 spot = vec3(peak(p.y-(1.0-v)*h, 3.0) * b * peak(fract(p.x/w*chn)-0.5, 0.2));
+                    c += spot;
+                    rgb = rgb*(1.0-alpha) + c*alpha;
+                }
+            }
 
             gl_FragColor = vec4(rgb, 1.0);
         }
@@ -584,7 +619,7 @@ export class CA {
         const channel_n = lastLayer.out_n;
         this.channel_n = channel_n;
         const stateQuantization = lastLayer.quantScaleZero;
-        const peekD = 4;
+        const sonicW = 4;
         this.buf = {
             control: createTensor(gl, gridW, gridH, 4, [255.0, 0.0]),
             align: createTensor(gl, gridW, gridH, 4, [2.0, 127.0 / 255.0]),
@@ -592,11 +627,11 @@ export class CA {
             state: createTensor(gl, gridW, gridH, channel_n, stateQuantization),
             newState: createTensor(gl, gridW, gridH, channel_n, stateQuantization),
             perception: createTensor(gl, gridW, updateH, perception_n, stateQuantization),
-            peek: createTensor(gl, peekD*channel_n/4, peekD, 4, stateQuantization),
+            sonic: createTensor(gl, sonicW*channel_n/4, sonicW, 4, stateQuantization),
         };
         {
-            const {width, height} = this.buf.peek.fbi;
-            this.peekBuf = new Uint8Array(height*width*4);
+            const {width, height} = this.buf.sonic.fbi;
+            this.sonicBuf = new Uint8Array(height*width*4);
         }
 
         for (let i=0; i<this.layers.length; ++i) {
@@ -698,14 +733,14 @@ export class CA {
     }
 
     peek(x, y, viewSize) {
-        this.runLayer(this.progs.peek, this.buf.peek, {
+        this.runLayer(this.progs.peek, this.buf.sonic, {
             u_pos: [x, y], u_viewSize: viewSize, u_input: this.buf.state
         });
-        const {width, height} = this.buf.peek.fbi;
+        const {width, height} = this.buf.sonic.fbi;
         const gl = this.gl;
-        twgl.bindFramebufferInfo(gl, this.buf.peek.fbi);
-        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this.peekBuf);
-        return this.peekBuf;
+        twgl.bindFramebufferInfo(gl, this.buf.sonic.fbi);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this.sonicBuf);
+        return this.sonicBuf;
     }
 
     clearCircle(x, y, r, viewSize) {
@@ -757,8 +792,9 @@ export class CA {
         });
     }
 
-    draw(viewSize, visMode) {
+    draw(viewSize, visMode, {sonicPos, sonicProgress}) {
         visMode ||= this.visMode;
+        sonicPos ||= [-1, -1];
         const gl = this.gl;
 
         gl.useProgram(this.progs.vis.program);
@@ -770,6 +806,8 @@ export class CA {
             u_arrows: this.arrowsCoef,
             u_devicePixelRatio: this.devicePixelRatio,
             u_viewSize: viewSize,
+            u_sonicPos: sonicPos,
+            u_sonicProgress: sonicProgress,
         };
         let inputBuf = this.buf.state;
         if (visMode != 'color') {
@@ -778,6 +816,7 @@ export class CA {
         }
         setTensorUniforms(uniforms, 'u_input', inputBuf);
         setTensorUniforms(uniforms, 'u_alignTex', this.buf.align);
+        setTensorUniforms(uniforms, 'u_sonic', this.buf.sonic);
         twgl.setUniforms(this.progs.vis, uniforms);
         twgl.drawBufferInfo(gl, this.quad);
     }
