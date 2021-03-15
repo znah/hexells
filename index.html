@@ -102,6 +102,7 @@ a:visited {
 
 <script type="module">
   import { CA } from "./ca.js"
+  import { Sonic } from "./sonic.js"
 
   const $ = q=>document.querySelector(q);
 
@@ -181,58 +182,7 @@ a:visited {
     window.ca = ca;
     //ca.alignment = 0;
 
-    class Sonic {
-      constructor() {
-        // this.synth = null;
-        this.state = null;
-        this._progress = 0
-        //this.synth = new Tone.Synth().toDestination();
-        this.env = new Tone.AmplitudeEnvelope({
-          attack: 0.05,
-          decay: 0.05,
-          sustain: 0.5,
-          release: 0.2
-        }).toDestination(); 
-        const voiceN = 16;
-        this.osc = Array(voiceN).fill().map(()=>new Tone.Oscillator({type:'triangle', volume: -35}).connect(this.env));       
-        Tone.Transport.start();
-
-        this.seq = new Tone.Sequence((time, i) => {
-          i +=3;
-          this._progress = i;
-          if (!this.state || i>=12)
-            return;
-          for (let j=0; j<voiceN; ++j) {
-            const note = 220*Math.pow(2.0, this.state[j*12+i]/128-1.0);
-            this.osc[j].frequency.setValueAtTime(note, time);
-          }
-          this.env.triggerAttackRelease(0.05, time);
-        }, [...Array(12-3+0).keys()], 1.0/8.0);
-
-      }
-
-      start(state) {
-        if (this.seq.state == 'stopped')
-          this.seq.start();
-        this.update(state);
-        this.osc.forEach(o=>o.start());
-      }
-
-      stop() {
-        this.osc.forEach(o=>o.stop());
-        this.seq.stop();
-      }
-
-      update(state) {
-        this.state = state;
-      }
-
-      progress() {
-        return this._progress;
-      }
-    };
-
-    const sonic = new Sonic();
+    const sonic = new Sonic(gl);
     window.sonic = sonic;
     console.log(sonic);
 
@@ -383,12 +333,13 @@ a:visited {
       }
 
       twgl.bindFramebufferInfo(gl);
-      ca.draw(viewSize, 'color', {sonicPos: lastMousePos, sonicProgress: sonic.progress()});
-      if (lastMousePos) {
-        // const d=200;
-        // gl.viewport(0, (viewSize[1]-d)*dpr, d*dpr, d*dpr);
-        // ca.draw(viewSize, 'peek');
-      }
+      ca.draw(viewSize, 'color', sonic.progress());
+      sonic.draw(viewSize)
+      // if (lastMousePos) {
+      //   const d=200;
+      //   gl.viewport(0, (viewSize[1]-d)*dpr, d*dpr, d*dpr);
+      //   ca.draw(viewSize, 'sonic');
+      // }
 
       requestAnimationFrame(render);
     }

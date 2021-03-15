@@ -206,7 +206,7 @@ const PROGRAMS = {
 
     void main() {
         Hexel h = screen2hex(u_pos);
-        //h.cellXY = mod(h.cellXY, u_output.size);
+        h.cellXY = mod(h.cellXY, u_output.size);
         vec2 diff = abs(getOutputXY()-h.cellXY-0.5);
         diff = min(diff, u_output.size-diff);
         if (u_r>0.0 && length(diff)>=80.0/h.zoom)
@@ -462,7 +462,7 @@ const PROGRAMS = {
                 }
             } 
 
-            if (u_sonicPos.x >= 0.0) {
+            if (u_sonicProgress >= 0.0) {
                 const float w=120.0, h=60.0;
                 vec2 p = screenPos-u_sonicPos+vec2(0.5*w, h*1.6);
                 float box = sdBox(p-vec2(w, h)*0.5, vec2(w, h)*0.5);
@@ -560,6 +560,8 @@ export class CA {
  
         this.layers = [];
         this.setWeights(models);
+
+        this.sonicPos = [0, 0];
 
         this.progs = createPrograms(gl, this.shuffledMode ? '#define SPARSE_UPDATE\n' : '');
         this.quad = twgl.createBufferInfoFromArrays(gl, {
@@ -740,6 +742,7 @@ export class CA {
         const gl = this.gl;
         twgl.bindFramebufferInfo(gl, this.buf.sonic.fbi);
         gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this.sonicBuf);
+        this.sonicPos = [x, y];
         return this.sonicBuf;
     }
 
@@ -792,9 +795,9 @@ export class CA {
         });
     }
 
-    draw(viewSize, visMode, {sonicPos, sonicProgress}) {
+    draw(viewSize, visMode, sonicProgress) {
         visMode ||= this.visMode;
-        sonicPos ||= [-1, -1];
+        sonicProgress ||= -1.0;
         const gl = this.gl;
 
         gl.useProgram(this.progs.vis.program);
@@ -806,7 +809,7 @@ export class CA {
             u_arrows: this.arrowsCoef,
             u_devicePixelRatio: this.devicePixelRatio,
             u_viewSize: viewSize,
-            u_sonicPos: sonicPos,
+            u_sonicPos: this.sonicPos,
             u_sonicProgress: sonicProgress,
         };
         let inputBuf = this.buf.state;
@@ -820,4 +823,5 @@ export class CA {
         twgl.setUniforms(this.progs.vis, uniforms);
         twgl.drawBufferInfo(gl, this.quad);
     }
+    
 }
