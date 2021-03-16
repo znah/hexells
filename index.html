@@ -132,9 +132,9 @@ a:visited {
 
   };
 
-  const gl = canvas.getContext("webgl");
+  const gl = canvas.getContext("webgl", { alpha: false });
   const gui = new dat.GUI();
-  //gui.hide();
+  gui.hide();
   const param = {
     active: true,
     model: 149,
@@ -179,12 +179,11 @@ a:visited {
       }
     };
     const ca = new CA(gl, models, [160, 160], gui, onready);
-    window.ca = ca;
+    const sonic = new Sonic(gl, ca);
     //ca.alignment = 0;
 
-    const sonic = new Sonic(gl);
+    window.ca = ca;
     window.sonic = sonic;
-    console.log(sonic);
 
 
     
@@ -199,7 +198,9 @@ a:visited {
       return [touch.clientX - rect.left, touch.clientY - rect.top];
     }
 
-    const shuffledModels = models.model_names.map((_, i)=>[Math.random(), i]).sort().map(p=>p[1]);
+    const shuffledModels = [132, 141, 149, 134, 168, 40, 104, 37, 64, 126, 154, 133].concat(
+      models.model_names.map((_, i)=>[Math.random(), i]).sort().map(p=>p[1]));
+    //const shuffledModels = [132, 141, 149, 134, 168, 40, 104, 37, 64, 126, 154, 133];
     let initModelIdx = parseInt(window.location.hash.slice(1));
     if (isNaN(initModelIdx) || initModelIdx < 0 || initModelIdx >= shuffledModels.length) {
       initModelIdx = 132;
@@ -233,6 +234,22 @@ a:visited {
         gesture.prevPos = pos;
       }
     }    
+
+    function switchModel(swipe) {
+      const n = shuffledModels.length;
+      curModel = (curModel+n+swipe) % n;
+      const i = shuffledModels[curModel];
+      ca.paint(0, 0, -1, i);
+      ca.disturb();
+      console.log(i);
+      window.location.hash = i;
+    }
+
+    document.addEventListener('keypress', e=>{
+      if (e.key == 'a') switchModel(1);
+      if (e.key == 'z') switchModel(-1);
+    });
+
     function endGestue(pos) {
       if (!gesture)
        return;
@@ -242,13 +259,7 @@ a:visited {
         if (l>100 && Math.max(r, u, d)<l*0.25) swipe = -1;
         if (r>100 && Math.max(l, u, d)<r*0.25) swipe = 1;
         if (swipe != 0)  {
-            const n = shuffledModels.length;
-            curModel = (curModel+n+swipe) % n;
-            const i = shuffledModels[curModel];
-            ca.paint(0, 0, -1, i);
-            ca.disturb();
-            console.log(i);
-            window.location.hash = i;
+          switchModel(swipe);
         }
       }
       gesture = null;
@@ -333,14 +344,13 @@ a:visited {
       }
 
       twgl.bindFramebufferInfo(gl);
-      ca.draw(viewSize, 'color', sonic.progress());
-      sonic.draw(viewSize)
+      ca.draw(viewSize, 'color');
+      sonic.draw(viewSize);
       // if (lastMousePos) {
       //   const d=200;
-      //   gl.viewport(0, (viewSize[1]-d)*dpr, d*dpr, d*dpr);
+      //   gl.viewport(0, 0, 500*dpr, 32*dpr);
       //   ca.draw(viewSize, 'sonic');
       // }
-
       requestAnimationFrame(render);
     }
 
