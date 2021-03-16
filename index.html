@@ -4,6 +4,7 @@
 <script src="twgl-full.min.js"></script>
 <script src="dat.gui.min.js"></script>
 <script src="seedrandom.min.js"></script>
+<script src="Tone.js" integrity="sha512-nUjml8mN4CNYqBAy0ndDrd8pJV/eTtBNDsnvNtPqozx9/BccUeWSoKW14qWkQUnhuh8E3m+yra3qdzM68lqPEQ==" crossorigin="anonymous"></script>
 <script src="ca.js" type="module"></script>
 
 <!-- Global site tag (gtag.js) - Google Analytics -->
@@ -89,7 +90,7 @@ a:visited {
 </p>
 
 <p style="font-size: large;">
-  Touch to interact; swipe left or right to change the pattern.
+  Touch to interact, hold to listen, swipe left or right to change the pattern.
 </p>
 
 <div id="hideBtn" style="text-align: center;"><button>Hide</button></div>
@@ -101,6 +102,7 @@ a:visited {
 
 <script type="module">
   import { CA } from "./ca.js"
+  import { Sonic } from "./sonic.js"
 
   const $ = q=>document.querySelector(q);
 
@@ -130,7 +132,7 @@ a:visited {
 
   };
 
-  const gl = canvas.getContext("webgl");
+  const gl = canvas.getContext("webgl", { alpha: false });
   const gui = new dat.GUI();
   gui.hide();
   const param = {
@@ -151,6 +153,8 @@ a:visited {
   const seed = parseInt(query.get("seed"));
   if (seed) Math.seedrandom(seed);
   const page = parseInt(query.get("page"));
+
+  //$('#info').style.display = 'none';
   
   fetch('models.json').then(r => r.json()).then(models => {
     const onready = ()=>{
@@ -175,8 +179,11 @@ a:visited {
       }
     };
     const ca = new CA(gl, models, [160, 160], gui, onready);
+    const sonic = new Sonic(gl, ca);
+
     window.ca = ca;
-    ca.alignment = 0;
+    window.sonic = sonic;
+
     
     const name2idx = Object.fromEntries(models.model_names.map((s, i) => [s, i]));
     gui.add(param, 'model').options(name2idx).listen();
@@ -189,6 +196,8 @@ a:visited {
       return [touch.clientX - rect.left, touch.clientY - rect.top];
     }
 
+    //const shuffledModels = [132, 141, 149, 134, 168, 40, 104, 37, 64, 126, 154, 133].concat(
+    //  models.model_names.map((_, i)=>[Math.random(), i]).sort().map(p=>p[1]));
     const shuffledModels = models.model_names.map((_, i)=>[Math.random(), i]).sort().map(p=>p[1]);
     let initModelIdx = parseInt(window.location.hash.slice(1));
     if (isNaN(initModelIdx) || initModelIdx < 0 || initModelIdx >= shuffledModels.length) {
@@ -198,21 +207,28 @@ a:visited {
     ca.paint(0, 0, -1, initModelIdx);
     let curModel = shuffledModels.indexOf(initModelIdx);
     let gesture = null;
+
     function startGestue(pos) {
       gesture = {
         l: 0, r: 0, u: 0, d: 0,
         prevPos: pos,
-        time: Date.now()
+        time: Date.now(),
+        sonic: false,
       };
+      Tone.start();
+      setTimeout(()=>{
+        if (gesture) {
+          const {l, r, u, d} = gesture;
+          if (l+r+u+d < 50) {
+            gesture.sonic = true;
+          }
+        }
+      }, 250);
     }
     function touch(pos) {
       const [x, y] = pos;
       const viewSize = [canvas.clientWidth, canvas.clientHeight];
-      if ( param.paintMode ) {
-        ca.paint(x, y, param.brushRadius, param.model, viewSize);
-      } else {
-        ca.clearCircle(x, y, param.brushRadius, viewSize);
-      }
+      let erase = true;
       if (gesture) {
         const [x0, y0] = gesture.prevPos;
         gesture.l += Math.max(x0-x, 0.0);
@@ -220,24 +236,40 @@ a:visited {
         gesture.u += Math.max(y0-y, 0.0);
         gesture.d += Math.max(y-y0, 0.0);
         gesture.prevPos = pos;
+        if (gesture.sonic && Math.abs(x0-x) + Math.abs(y0-y) < 20) {
+          erase = false;
+        }
+      }
+      if (erase) {
+        ca.clearCircle(x, y, param.brushRadius, viewSize);
       }
     }    
+
+    function switchModel(swipe) {
+      const n = shuffledModels.length;
+      curModel = (curModel+n+swipe) % n;
+      const i = shuffledModels[curModel];
+      ca.paint(0, 0, -1, i);
+      ca.disturb();
+      console.log(i);
+      window.location.hash = i;
+    }
+
+    document.addEventListener('keypress', e=>{
+      if (e.key == 'a') switchModel(1);
+      if (e.key == 'z') switchModel(-1);
+    });
+
     function endGestue(pos) {
       if (!gesture)
        return;
-      if (Date.now()-gesture.time < 1000) {
+      if (Date.now()-gesture.time < 1000 && !gesture.sonic) {
         const {l, r, u, d} = gesture;
         let swipe = 0;
-        if (l>100 && Math.max(r, u, d)<l*0.25) swipe = -1;
-        if (r>100 && Math.max(l, u, d)<r*0.25) swipe = 1;
+        if (l>200 && Math.max(r, u, d)<l*0.25) swipe = -1;
+        if (r>200 && Math.max(l, u, d)<r*0.25) swipe = 1;
         if (swipe != 0)  {
-            const n = shuffledModels.length;
-            curModel = (curModel+n+swipe) % n;
-            const i = shuffledModels[curModel];
-            ca.paint(0, 0, -1, i);
-            ca.disturb();
-            console.log(i);
-            window.location.hash = i;
+          switchModel(swipe);
         }
       }
       gesture = null;
@@ -247,8 +279,8 @@ a:visited {
       e.preventDefault();
       if (e.buttons == 1) {
         const pos = getMousePos(e);
-        touch(pos);
         startGestue(pos);
+        touch(pos);
       }
     }
     canvas.onmousemove = e => {
@@ -265,12 +297,12 @@ a:visited {
     canvas.addEventListener("touchstart", e => {
       e.preventDefault();
       const pos = getTouchPos(e.changedTouches[0]);
-      touch(pos);
       if (e.touches.length == 1) {
         startGestue(pos);
       } else {
         gesture = null; //cancel guesture
       }
+      touch(pos);
     });
     canvas.addEventListener("touchmove", e => {
       e.preventDefault();
@@ -292,14 +324,27 @@ a:visited {
         ca.step();
       }
       
-      const devicePixelRatio = window.devicePixelRatio || 1;
-      canvas.width = Math.round(canvas.clientWidth * devicePixelRatio);
-      canvas.height = Math.round(canvas.clientHeight * devicePixelRatio);      
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(canvas.clientWidth * dpr);
+      canvas.height = Math.round(canvas.clientHeight * dpr);      
       const viewSize = [canvas.clientWidth, canvas.clientHeight];
 
-      twgl.bindFramebufferInfo(gl);
-      ca.draw(viewSize);
+      if (gesture && gesture.sonic) {
+        const [x, y] = gesture.prevPos;
+        const state = ca.peek(x, y, viewSize);
+        sonic.play(state);
+      } else {
+        sonic.stop();
+      }
 
+      twgl.bindFramebufferInfo(gl);
+      ca.draw(viewSize, 'color');
+      sonic.draw(viewSize);
+      // if (lastMousePos) {
+      //   const d=200;
+      //   gl.viewport(0, 0, 500*dpr, 32*dpr);
+      //   ca.draw(viewSize, 'sonic');
+      // }
       requestAnimationFrame(render);
     }
 

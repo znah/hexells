@@ -50,6 +50,8 @@ const PREFIX = `
     #extension GL_OES_standard_derivatives : enable
     precision highp float;
 
+    const float PI = 3.14159265359;
+
     // "Hash without Sine" by David Hoskins (https://www.shadertoy.com/view/4djSRW)
     float hash13(vec3 p3) {
       p3  = fract(p3 * .1031);
@@ -173,20 +175,28 @@ const PREFIX = `
 
     uniform vec2 u_viewSize;
 
-    float screen2hex(vec2 xy, out vec2 cellXY, out vec2 p) {
+    struct Hexel {
+        vec2 cellXY;
+        vec2 p;
+        float zoom;
+    };
+
+    Hexel screen2hex(vec2 xy) {
+        xy /= u_viewSize;
         xy.y = 1.0-xy.y;
         vec2 normViewSize = u_viewSize/length(u_viewSize);
         xy = (xy*0.85+0.25) * normViewSize;
  
+        Hexel h;
         float nxy = length(xy);
-        float zoom = 4.0/(nxy*nxy);
+        h.zoom = 4.0/(nxy*nxy);
         xy = cmul(xy, xy);
         xy = cmul(xy, xy);
         xy *= 160.0;
         vec4 r = getHex(xy);
-        cellXY = r.zw;
-        p = r.xy;
-        return zoom;
+        h.cellXY = r.zw;
+        h.p = r.xy;
+        return h;
     }
 `;
 
@@ -197,20 +207,33 @@ const PROGRAMS = {
     uniform vec4 u_brush;
 
     void main() {
-        vec2 cellXY, p;
-        float zoom = screen2hex(u_pos/u_viewSize, cellXY, p);
-        cellXY = mod(cellXY, u_output.size);
-        vec2 diff = abs(getOutputXY()-cellXY-0.5);
+        Hexel h = screen2hex(u_pos);
+        h.cellXY = mod(h.cellXY, u_output.size);
+        vec2 diff = abs(getOutputXY()-h.cellXY-0.5);
         diff = min(diff, u_output.size-diff);
-        if (u_r>0.0 && length(diff)>=80.0/zoom)
+        if (u_r>0.0 && length(diff)>=80.0/h.zoom)
           discard;
         setOutput(u_brush);
+    }`,
+    peek: `
+    uniform vec2 u_pos;
+
+    vec2 getPeekPos(float i) {
+        float a = i*0.61803398875*2.0*PI;
+        float r = (u_viewSize.x+u_viewSize.y)/1000.0;
+        return vec2(cos(a), sin(a)) * sqrt(i) * r;
+    }
+
+    void main() {
+        float out_i = getOutputXY().x;
+        float i = floor(out_i / u_input.depth4);
+        float channel = floor(mod(out_i, u_input.depth4));
+        Hexel h = screen2hex(u_pos + getPeekPos(i));
+        setOutput(u_input_read(h.cellXY, channel));
     }`,
     align: `
     uniform float u_init;
 
-    const float PI = 3.14159265359;
-        
     const mat3 blur = mat3(1.0/9.0);
     const mat3 blurHex = mat3(0.0,       1.0, 1.0, 
                                        1.0, 1.0, 1.0, 
@@ -342,13 +365,12 @@ const PROGRAMS = {
     uniform float u_zoom;
     uniform float u_perceptionCircle, u_arrows;
     uniform float u_devicePixelRatio;
+
     varying vec2 uv;
 
     float clip01(float x) {
         return min(max(x, 0.0), 1.0);
     }
-
-    const float PI = 3.141592653;
 
     float peak(float x, float r) {
         float y = x/r;
@@ -394,44 +416,50 @@ const PROGRAMS = {
         rgb += clip01((r-length(xy-pos))/r)*0.2;
     }
 
+    float sdBox( in vec2 p, in vec2 b )
+    {
+        vec2 d = abs(p)-b;
+        return length(max(d,0.0)) + min(max(d.x,d.y),0.0);
+    }
+
     void main() {
         vec2 xy = vec2(uv.x, 1.0-uv.y);
         if (u_raw > 0.5) {
             gl_FragColor = texture2D(u_input_tex, xy);
             gl_FragColor.a = 1.0;
         } else {
-            vec2 cellXY, p;
-            float zoom = screen2hex(xy, cellXY, p);
-            cellXY += 0.5;
+            vec2 screenPos = xy*u_viewSize;
+            Hexel h = screen2hex(screenPos);
+            vec2 p = h.p;
+            h.cellXY += 0.5;
 
-            vec3 rgb = u_input_read(cellXY, 0.0).rgb/2.0+0.5;
-            if (4.0<zoom) {
-                vec2 dir = getCellDirection(floor(cellXY)+0.5);
+            vec3 rgb = u_input_read(h.cellXY, 0.0).rgb/2.0+0.5;
+            if (4.0<h.zoom) {
+                vec2 dir = getCellDirection(floor(h.cellXY)+0.5);
                 float s = dir.x, c = dir.y;
-                float fade = clip01((zoom-4.0)/4.0);
+                float fade = clip01((h.zoom-4.0)/4.0);
                 float r = clip01((1.0-hex(p))*8.0);
                 r = pow(r, 0.2);
                 rgb *= mix(1.0, r, fade);
 
                 p = mat2(c, s, -s, c) * p;    
 
-                if (12.0 < zoom) {
+                if (12.0 < h.zoom) {
                     float da = PI/12.0;
                     float a = -da;
                     vec4 v4;
                     vec3 spots;
                     for (float ch=0.0; ch<2.5; ++ch) {
-                        v4 = (u_input_read01(cellXY, ch)-127.0/255.0)*2.0;
+                        v4 = (u_input_read01(h.cellXY, ch)-127.0/255.0)*2.0;
                         spot(ang2vec(a+=da), v4.x, p, spots);
                         spot(ang2vec(a+=da), v4.y, p, spots);
                         spot(ang2vec(a+=da), v4.z, p, spots);
                         spot(ang2vec(a+=da), v4.w, p, spots);
                     }
-                    spots *= clip01((zoom-12.0)/3.0);
+                    spots *= clip01((h.zoom-12.0)/3.0);
                     rgb += spots;
                 }
             } 
-
             gl_FragColor = vec4(rgb, 1.0);
         }
     }`
@@ -568,7 +596,9 @@ export class CA {
         const perception_n = this.layers[0].in_n;
         const lastLayer = this.layers[this.layers.length-1];
         const channel_n = lastLayer.out_n;
+        this.channel_n = channel_n;
         const stateQuantization = lastLayer.quantScaleZero;
+        const sonicN = 16;
         this.buf = {
             control: createTensor(gl, gridW, gridH, 4, [255.0, 0.0]),
             align: createTensor(gl, gridW, gridH, 4, [2.0, 127.0 / 255.0]),
@@ -576,7 +606,13 @@ export class CA {
             state: createTensor(gl, gridW, gridH, channel_n, stateQuantization),
             newState: createTensor(gl, gridW, gridH, channel_n, stateQuantization),
             perception: createTensor(gl, gridW, updateH, perception_n, stateQuantization),
+            sonic: createTensor(gl, sonicN*channel_n/4, 1, 4, stateQuantization),
         };
+        {
+            const {width, height} = this.buf.sonic.fbi;
+            this.sonicBuf = new Uint8Array(height*width*4);
+        }
+
         for (let i=0; i<this.layers.length; ++i) {
             const layer = this.layers[i];
             this.buf[`layer${i}`] = createTensor(gl, gridW, updateH, layer.out_n, layer.quantScaleZero);
@@ -675,6 +711,17 @@ export class CA {
         });
     }
 
+    peek(x, y, viewSize) {
+        this.runLayer(this.progs.peek, this.buf.sonic, {
+            u_pos: [x, y], u_viewSize: viewSize, u_input: this.buf.state
+        });
+        const {width, height} = this.buf.sonic.fbi;
+        const gl = this.gl;
+        twgl.bindFramebufferInfo(gl, this.buf.sonic.fbi);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this.sonicBuf);
+        return {buf: this.sonicBuf, tex: this.buf.sonic.tex, pos: [x, y]};
+    }
+
     clearCircle(x, y, r, viewSize) {
         viewSize = viewSize || [128, 128];
         self.runLayer(self.progs.paint, this.buf.state, {
@@ -724,7 +771,8 @@ export class CA {
         });
     }
 
-    draw(viewSize) {
+    draw(viewSize, visMode) {
+        visMode ||= this.visMode;
         const gl = this.gl;
 
         gl.useProgram(this.progs.vis.program);
@@ -738,8 +786,8 @@ export class CA {
             u_viewSize: viewSize,
         };
         let inputBuf = this.buf.state;
-        if (this.visMode != 'color') {
-            inputBuf = this.buf[this.visMode];
+        if (visMode != 'color') {
+            inputBuf = this.buf[visMode];
             uniforms.u_raw = 1.0;
         }
         setTensorUniforms(uniforms, 'u_input', inputBuf);
