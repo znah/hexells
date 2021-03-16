@@ -220,7 +220,8 @@ const PROGRAMS = {
 
     vec2 getPeekPos(float i) {
         float a = i*0.61803398875*2.0*PI;
-        return vec2(cos(a), sin(a)) * sqrt(i) * 2.0;
+        float r = (u_viewSize.x+u_viewSize.y)/1000.0;
+        return vec2(cos(a), sin(a)) * sqrt(i) * r;
     }
 
     void main() {

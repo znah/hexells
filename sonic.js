@@ -39,7 +39,8 @@ const vs_code = defs+`
         
         if (element == -2.0) {
           uv = vertex.xy;
-          pos += uv*15.0;
+          float r = 8.0*(viewSize.x+viewSize.y)/1000.0;
+          pos += uv*r;
         } else if (element == -1.0) {
           pos += vec2(0.0, shift);
           uv = vertex.xy*(wh+border);
@@ -50,7 +51,7 @@ const vs_code = defs+`
           float i = floor(vertex.z / 9.0);
           float ch = mod(vertex.z, 9.0);
           float v = getChannel(i, ch+3.0); // skip RGB
-          pos += vec2(ch/4.0-1.0, 1.0-v*2.0) * wh;
+          pos += vec2((ch+(i-7.5)/40.0)/4.0-1.0, 1.0-v*2.0) * wh;
           pos += vertex.xy*vec2(5.0, 5.0);
           playingNote = float(ch==progress);
         }
@@ -62,19 +63,15 @@ const vs_code = defs+`
 const fs_code =  'precision highp float;\n'+defs+`
     uniform sampler2D sonicTex;
     
-    float clip01(float x) {
-      return min(max(x, 0.0), 1.0);
-    }
-    
     void main() {
       if (element == -2.0) {
-        float v = max(1.0-length(uv), 0.0);
-        gl_FragColor = vec4(1.0, 1.0, 1.0, clip01(v*4.0)*0.7);
+        float v =  smoothstep(1.0, 0.8, length(uv));
+        gl_FragColor = vec4(1.0, 1.0, 1.0, v*0.5);
       } else if (element == -1.0) {
-        float d = length(max(abs(uv)-wh, 0.0));
-        gl_FragColor = vec4(0.0, 0.0, 0.0, (1.0-d/border)*0.5);
+        float v = smoothstep(border, 0.0, length(max(abs(uv)-wh, 0.0)));
+        gl_FragColor = vec4(0.0, 0.0, 0.0, v*0.5);
       } else {
-        float v = max(1.0-length(uv), 0.0);
+        float v = smoothstep(1.0, 0.0, length(uv));
         gl_FragColor = vec4(1.0, 1.0, 1.0, v*(0.1+playingNote*0.5));
       }
     }
@@ -87,8 +84,10 @@ export class Sonic {
       this.ca = ca;
       this.program = twgl.createProgramInfo(gl, [vs_code, fs_code]);
 
+      const voiceN = 16;
+
       const pos = []; 
-      for (let i=-2; i<9*4*4; ++i) {
+      for (let i=-2; i<9*voiceN; ++i) {
           pos.push(-1, -1, i, 1, -1, i, -1, 1, i, -1, 1, i, 1, -1, i, 1, 1, i);
       }
       this.quads = twgl.createBufferInfoFromArrays(gl, {vertex: pos});
@@ -101,39 +100,31 @@ export class Sonic {
         sustain: 0.5,
         release: 0.2
       }).toDestination();
-      const voiceN = 16;
-      this.osc = Array(voiceN).fill().map(()=>new Tone.Oscillator({type:'triangle', volume: -35}).connect(this.env));       
+      this.osc = Array(voiceN).fill().map(
+        ()=>new Tone.Oscillator({type:'triangle'}).connect(this.env).start()
+      );
       Tone.Transport.start();
 
       this.seq = new Tone.Sequence((time, i) => {
-        this._progress = i;
-        i +=3;
-        if (!this.state || i>=12)
+        if (!this.state || i>=9)
           return;
+        this._progress = i;
         for (let j=0; j<voiceN; ++j) {
-          const note = 220*Math.pow(2.0, this.state.buf[j*12+i]/128-1.0);
+          const note = 220*Math.pow(2.0, this.state.buf[j*12+i+3]/128-1.0);
           this.osc[j].frequency.setValueAtTime(note, time);
         }
-        this.env.triggerAttackRelease(0.05, time);
-      }, [...Array(12-3+0).keys()], 1.0/8.0);
+        this.env.triggerAttackRelease(0.05, time, 0.8/voiceN);
+      }, [...Array(12-3+0).keys()], 1.0/8.0).start();
 
     }
 
-    start(state) {
-      if (this.seq.state == 'stopped')
-        this.seq.start();
-      this.update(state);
-      this.osc.forEach(o=>o.start());
+    play(state) {
+      this.state = state;
     }
 
     stop() {
-      //this.osc.forEach(o=>o.stop(0.5));
-      this.seq.stop();
+      this.state = null;
       this._progress = -1;
-    }
-
-    update(state) {
-      this.state = state;
     }
 
     progress() {
@@ -141,7 +132,7 @@ export class Sonic {
     }
 
     draw(viewSize) {
-        if (this._progress < 0)
+        if (!this.state)
             return;
         const gl = this.gl;
         gl.useProgram(this.program.program);
