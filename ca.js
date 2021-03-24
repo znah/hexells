@@ -772,7 +772,7 @@ export class CA {
     }
 
     draw(viewSize, visMode) {
-        visMode ||= this.visMode;
+        visMode = visMode || this.visMode;
         const gl = this.gl;
 
         gl.useProgram(this.progs.vis.program);
