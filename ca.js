@@ -198,6 +198,13 @@ const PREFIX = `
         h.p = r.xy;
         return h;
     }
+
+    float calcMouseDist(vec2 mousePosScr) {
+        Hexel h = screen2hex(mousePosScr);
+        h.cellXY = mod(h.cellXY, u_output.size);
+        vec2 diff = abs(getOutputXY()-h.cellXY-0.5);
+        return length(min(diff, u_output.size-diff))*h.zoom;
+    }
 `;
 
 const PROGRAMS = {
@@ -207,11 +214,7 @@ const PROGRAMS = {
     uniform vec4 u_brush;
 
     void main() {
-        Hexel h = screen2hex(u_pos);
-        h.cellXY = mod(h.cellXY, u_output.size);
-        vec2 diff = abs(getOutputXY()-h.cellXY-0.5);
-        diff = min(diff, u_output.size-diff);
-        if (u_r>0.0 && length(diff)>=80.0/h.zoom)
+        if (u_r>0.0 && calcMouseDist(u_pos)>=80.0)
           discard;
         setOutput(u_brush);
     }`,
@@ -232,6 +235,8 @@ const PROGRAMS = {
         setOutput(u_input_read(h.cellXY, channel));
     }`,
     align: `
+    uniform vec2 u_pos;
+    uniform float u_r;
     uniform float u_init;
 
     const mat3 blur = mat3(1.0/9.0);
@@ -241,16 +246,17 @@ const PROGRAMS = {
 
     void main() {
         vec2 xy = getOutputXY();
+        vec4 v = conv3x3(xy, 0.0, blur*(1.0-u_hexGrid) + blurHex*u_hexGrid);
+        v.xy = normalize(mix(u_input_read(xy, 0.0).xy, v.xy, 1.0));
+        setOutput(v);
+
         if (u_init > 0.0) {
+            if (u_r>0.0 && calcMouseDist(u_pos)>=80.0)
+              return;
             float a = hash13(vec3(xy+vec2(34299.0, -56593.0), u_init)) * 2.0 * PI;
             vec2 v = normalize(ang2vec(a)+0.2*ang2vec(u_init));
             setOutput(vec4(v, 0.0, 0.0));
-            return;
         }
-        vec4 v = conv3x3(xy, 0.0, blur*(1.0-u_hexGrid) + blurHex*u_hexGrid);
-        v.xy = normalize(mix(u_input_read(xy, 0.0).xy, v.xy, 1.0));
-        //v.xy = vec2(0.0, 1.0);
-        setOutput(v);
     }`,
     perception: `
     const mat3 sobelX = mat3(-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0)/8.0;
@@ -459,7 +465,7 @@ const PROGRAMS = {
                     spots *= clip01((h.zoom-12.0)/3.0);
                     rgb += spots;
                 }
-            } 
+            }
             gl_FragColor = vec4(rgb, 1.0);
         }
     }`
@@ -519,7 +525,6 @@ function createDenseInfo(gl, params, onready) {
 
 export class CA {
     constructor(gl, models, gridSize, gui, onready) {
-        self = this;
         this.onready = onready || (()=>{});
         this.gl = gl;
         this.gridSize = gridSize || [96, 96];
@@ -564,10 +569,20 @@ export class CA {
     }
 
     disturb() {
-        this.runLayer(self.progs.align, this.buf.align, {
+        this.runLayer(this.progs.align, this.buf.align, {
             u_input: this.buf.newAlign, u_hexGrid: this.hexGrid, u_init: Math.random()*1000+1,
+            u_r: -1,
         });
     }
+
+    disturbCircle(x, y, r, viewSize) {
+        viewSize = viewSize || [128, 128];
+        this.runLayer(this.progs.align, this.buf.align, {
+            u_input: this.buf.newAlign, u_hexGrid: this.hexGrid, u_init: Math.random()*1000+1,
+            u_pos: [x, y], u_r: r, u_viewSize: viewSize,
+        });
+    }
+
 
     setupBuffers() {
         const gl = this.gl;
@@ -630,12 +645,12 @@ export class CA {
         }
         
         if (stage == 'all' || stage == 'align') {
-            this.runLayer(self.progs.align, this.buf.newAlign, {
+            this.runLayer(this.progs.align, this.buf.newAlign, {
                 u_input: this.buf.align, u_hexGrid: this.hexGrid, u_init: 0.0
             });
         }
         if (stage == 'all' || stage == 'perception') {
-            this.runLayer(self.progs.perception, this.buf.perception, {
+            this.runLayer(this.progs.perception, this.buf.perception, {
                 u_input: this.buf.state, u_angle: this.rotationAngle / 180.0 * Math.PI,
                 u_alignTex: this.buf.newAlign,
                 u_alignment: this.alignment, u_hexGrid: this.hexGrid
@@ -724,7 +739,7 @@ export class CA {
 
     clearCircle(x, y, r, viewSize) {
         viewSize = viewSize || [128, 128];
-        self.runLayer(self.progs.paint, this.buf.state, {
+        this.runLayer(this.progs.paint, this.buf.state, {
             u_pos: [x, y], u_r: r, u_brush: [0, 0, 0, 0], u_viewSize: viewSize,
         });
     }

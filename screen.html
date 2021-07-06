@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+<style>
+html, body, iframe {
+    margin: 0px;
+    width: 100vw;
+    height: 100vh;
+}
+#fsButton {
+  position: fixed;
+  z-index: 10;
+  top: 20px; left:20px;
+}
+</style>
+
+<button id="fsButton">Fullscreen</button>
+<iframe id="frame" src="./index.html"></iframe>
+
+<script>
+    const fsButton = document.getElementById('fsButton');
+    const iframe = document.getElementById('frame');
+    const requestFullscreen = iframe.requestFullscreen
+    || iframe.webkitRequestFullscreen || iframe.msRequestFullscreen;
+    if (requestFullscreen === undefined) {
+        fsButton.style.display = 'none';
+    }
+    fsButton.onclick = ()=>{
+        requestFullscreen.call(iframe, {navigationUI: "hide" });
+    };
+</script>

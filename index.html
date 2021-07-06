@@ -3,9 +3,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
 <script src="twgl-full.min.js"></script>
 <script src="dat.gui.min.js"></script>
-<script src="seedrandom.min.js"></script>
-<script src="Tone.js" integrity="sha512-nUjml8mN4CNYqBAy0ndDrd8pJV/eTtBNDsnvNtPqozx9/BccUeWSoKW14qWkQUnhuh8E3m+yra3qdzM68lqPEQ==" crossorigin="anonymous"></script>
-<script src="ca.js" type="module"></script>
+<!-- <script src="seedrandom.min.js"></script> -->
+<!-- <script src="live.js"></script> -->
+<script type='module' src="demo.js"></script>
+<script type='module' src="ca.js"></script>
+<!-- <script src="Tone.js" integrity="sha512-nUjml8mN4CNYqBAy0ndDrd8pJV/eTtBNDsnvNtPqozx9/BccUeWSoKW14qWkQUnhuh8E3m+yra3qdzM68lqPEQ==" crossorigin="anonymous"></script> -->
 
 <!-- Global site tag (gtag.js) - Google Analytics -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=UA-15552566-1"></script>
@@ -61,293 +63,126 @@ a:visited {
   pointer-events: none;
   white-space: nowrap;
   opacity: 0;
+  transition: opacity 1s;
+  text-align: center;
 }
 
-.hint-anim {
-  animation: fadeIn linear 2s;
+#ui {
+  display: none;
 }
-@keyframes fadeIn {
-  0% {opacity:0;}
-  10% {opacity:1;}
-  90% {opacity:1;}
-  100% {opacity:0;}
+
+#status { 
+  pointer-events: none;
+  position: absolute;
+  top: 0px;
+  width: 100%;
+  text-align: center;
+  background-color: rgba(0, 0, 0, 0.75);
+  transition: opacity 0.5s;
+  opacity: 0;
 }
+
+
 </style>
 
-<div id='hint' class='centered hint'>⇦ Swipe ⇨</div>
+<canvas id="glCanvas"></canvas>
+
+<div id='ui'>
+
+<div id='status' class=''>sdfsladf;lk</div> 
+<div id='hint' class='centered hint'>⇧<br>⇦ Swipe ⇨</div>
 
 <div id='info' class='centered'>
-  <p> <b style="font-size: large;">Hexells</b>
-  <span style="font-size: smaller;">by <a href="https://twitter.com/zzznah">Alexander Mordvintsev</a><span>
+  <b style="font-size: large;">Hexells</b>
+  <span style="font-size: smaller;">by <a href="https://twitter.com/zzznah">Alexander Mordvintsev</a></span>
 
   <p>
     is a Self-Organising System of cells, that was trained to build textures
     using neighbour communication only. This work exposes the relation between
     the life of an individual cell, and the cell collective as a whole.
   </p>
-  <p>     The system is based on the 
+  <p> The system is based on
     <a href="https://distill.pub/selforg/2021/textures/">Neural Cellular Automata</a>.
-</p>
-
-<p style="font-size: large;">
-  Touch to interact, hold to listen, swipe left or right to change the pattern.
-</p>
-
-<div id="hideBtn" style="text-align: center;"><button>Hide</button></div>
+  </p>
+  <p style="font-size: large;">
+    Touch to interact, swipe ⇦ or ⇨ to change the pattern.
+    Swipe&nbsp;⇧ to show the pattern on the BIG screen!
+  </p>
+  <div id="hideBtn" style="text-align: center;"><button>Hide</button></div>
 </div>
 
-<canvas id="glCanvas"></canvas>
 <button id="fsButton">Fullscreen</button>
 
+<!-- <meter style="position: fixed; top:20px; left: 20px;" id="volume" value="0" min="0" max="100"></meter> -->
+
+</div>
 
 <script type="module">
-  import { CA } from "./ca.js"
-  import { Sonic } from "./sonic.js"
 
-  const $ = q=>document.querySelector(q);
+import { Demo } from "./demo.js"
 
-  const canvas = $('#glCanvas');
 
-  const requestFullscreen = canvas.requestFullscreen
-      || canvas.webkitRequestFullscreen || canvas.msRequestFullscreen;
-  if (requestFullscreen === undefined) {
-    $('#fsButton').style.display = 'none';
+const $ = q=>document.querySelector(q);
+const canvas = $('#glCanvas');
+
+const isScreenMode = window.self !== window.top;
+console.log('isScreenMode:', isScreenMode);
+if (!isScreenMode) {
+  $('#ui').style.display = 'inline';
+}
+
+
+window.demo = new Demo(canvas, isScreenMode);
+
+const frame = document.body;
+const requestFullscreen = frame.requestFullscreen
+    || frame.webkitRequestFullscreen || frame.msRequestFullscreen;
+if (requestFullscreen === undefined) {
+  $('#fsButton').style.display = 'none';
+}
+$('#fsButton').onclick = ()=>{
+  requestFullscreen.call(frame, {navigationUI: "hide" });
+};
+
+document.addEventListener('fullscreenchange', (event) => {
+  if (document.fullscreenElement) {
+    $('#fsButton').style.display = "none";
+  } else {
+    $('#fsButton').style.display = "block";
   }
+});
 
-  $('#fsButton').onclick = ()=>{
-    const elem = canvas;
-    const opt = { navigationUI: "hide" };
-    if (elem.requestFullscreen) {
-      elem.requestFullscreen(opt);
-    } else if (elem.webkitRequestFullscreen) { /* Safari */
-      elem.webkitRequestFullscreen(opt);
-    } else if (elem.msRequestFullscreen) { /* IE11 */
-      elem.msRequestFullscreen(opt);
-    }
-  };
-  
-  $('#hideBtn').onclick = ()=>{
-    $('#info').style.display = 'none';
-    $('#hint').classList.add('hint-anim');
+$('#hideBtn').onclick = ()=>{
+  $('#info').style.display = 'none';
+  $('#hint').style.opacity = 1;
+  setTimeout(()=>{$('#hint').style.opacity = 0}, 2000);
+}
 
-  };
 
-  const gl = canvas.getContext("webgl", { alpha: false });
-  const gui = new dat.GUI();
-  gui.hide();
-  const param = {
-    active: true,
-    model: 149,
-    brushRadius: 16,
-    zoom: 1,
-    stepPerFrame: 1,
-    paintMode: false,
-  };
-  gui.add(param, 'active');
-  gui.add(param, 'brushRadius', 1, 40);
-  gui.add(param, 'zoom', 1.0, 64.0);
-  gui.add(param, 'stepPerFrame', 0, 6);
-  gui.add(param, 'paintMode', 0, 6);
+// $('#hideBtn').onclick = ()=>{
+//   $('#info').style.display = 'none';
+//   $('#hint').classList.add('hint-anim');
 
-  const query = new URLSearchParams(location.search);
-  const seed = parseInt(query.get("seed"));
-  if (seed) Math.seedrandom(seed);
-  const page = parseInt(query.get("page"));
+//   const meter = new Tone.Meter({normalRange:true, smoothing: 0.5});
+//   const mic = new Tone.UserMedia().connect(meter);
+//   let maxVol = 0.0;
+//   mic.open().then(() => {
+//     // promise resolves when input is available
+//     console.log("mic open");
 
-  //$('#info').style.display = 'none';
-  
-  fetch('models.json').then(r => r.json()).then(models => {
-    const onready = ()=>{
-      if (page && seed) {
-        param.active = false;
-        const pageModels = [132, 149, 134, 168, 104];
-        ca.paint(0, 0, -1, pageModels[page-1]);
-        ca.disturb();
+//     setInterval(() => {
+//       const v = meter.getValue();
+//       $('#volume').value = v*100.0;
+//       if (v>0.04) {
+//         console.log(v);
+//         ca.disturb();
+//       }        
+//     }, 100);
+//   }).catch(e => {
+//     // promise is rejected when the user doesn't have or allow mic access
+//     console.log("mic not open");
+//   });
 
-        for (let i=0; i<400; ++i) ca.step();
-        $('#fsButton').style.display = "none";
-        $('#info').style.display = 'none';
-        canvas.width = 2412;
-        canvas.height = 3074;
-        const viewSize = [canvas.width, canvas.height];
-        twgl.bindFramebufferInfo(gl);
-        ca.draw(viewSize);
-        const a = document.createElement('a');
-        a.href = canvas.toDataURL("image/png");
-        a.download = seed + '_' + page + '.png';
-        a.click();
-      }
-    };
-    const ca = new CA(gl, models, [160, 160], gui, onready);
-    const sonic = new Sonic(gl, ca);
+// };
 
-    window.ca = ca;
-    window.sonic = sonic;
-
-    
-    const name2idx = Object.fromEntries(models.model_names.map((s, i) => [s, i]));
-    gui.add(param, 'model').options(name2idx).listen();
-
-    function getMousePos(e) {
-      return [e.offsetX, e.offsetY];
-    }
-    function getTouchPos(touch) {
-      const rect = canvas.getBoundingClientRect();
-      return [touch.clientX - rect.left, touch.clientY - rect.top];
-    }
-
-    //const shuffledModels = [132, 141, 149, 134, 168, 40, 104, 37, 64, 126, 154, 133].concat(
-    //  models.model_names.map((_, i)=>[Math.random(), i]).sort().map(p=>p[1]));
-    const shuffledModels = models.model_names.map((_, i)=>[Math.random(), i]).sort().map(p=>p[1]);
-    let initModelIdx = parseInt(window.location.hash.slice(1));
-    if (isNaN(initModelIdx) || initModelIdx < 0 || initModelIdx >= shuffledModels.length) {
-      initModelIdx = 132;
-    }
-    console.log(initModelIdx);
-    ca.paint(0, 0, -1, initModelIdx);
-    let curModel = shuffledModels.indexOf(initModelIdx);
-    let gesture = null;
-
-    function startGestue(pos) {
-      gesture = {
-        l: 0, r: 0, u: 0, d: 0,
-        prevPos: pos,
-        time: Date.now(),
-        sonic: false,
-      };
-      Tone.start();
-      setTimeout(()=>{
-        if (gesture) {
-          const {l, r, u, d} = gesture;
-          if (l+r+u+d < 50) {
-            gesture.sonic = true;
-          }
-        }
-      }, 250);
-    }
-    function touch(pos) {
-      const [x, y] = pos;
-      const viewSize = [canvas.clientWidth, canvas.clientHeight];
-      let erase = true;
-      if (gesture) {
-        const [x0, y0] = gesture.prevPos;
-        gesture.l += Math.max(x0-x, 0.0);
-        gesture.r += Math.max(x-x0, 0.0);
-        gesture.u += Math.max(y0-y, 0.0);
-        gesture.d += Math.max(y-y0, 0.0);
-        gesture.prevPos = pos;
-        if (gesture.sonic && Math.abs(x0-x) + Math.abs(y0-y) < 20) {
-          erase = false;
-        }
-      }
-      if (erase) {
-        ca.clearCircle(x, y, param.brushRadius, viewSize);
-      }
-    }    
-
-    function switchModel(swipe) {
-      const n = shuffledModels.length;
-      curModel = (curModel+n+swipe) % n;
-      const i = shuffledModels[curModel];
-      ca.paint(0, 0, -1, i);
-      ca.disturb();
-      console.log(i);
-      window.location.hash = i;
-    }
-
-    document.addEventListener('keypress', e=>{
-      if (e.key == 'a') switchModel(1);
-      if (e.key == 'z') switchModel(-1);
-    });
-
-    function endGestue(pos) {
-      if (!gesture)
-       return;
-      if (Date.now()-gesture.time < 1000 && !gesture.sonic) {
-        const {l, r, u, d} = gesture;
-        let swipe = 0;
-        if (l>200 && Math.max(r, u, d)<l*0.25) swipe = -1;
-        if (r>200 && Math.max(l, u, d)<r*0.25) swipe = 1;
-        if (swipe != 0)  {
-          switchModel(swipe);
-        }
-      }
-      gesture = null;
-    }
-
-    canvas.onmousedown = e => {
-      e.preventDefault();
-      if (e.buttons == 1) {
-        const pos = getMousePos(e);
-        startGestue(pos);
-        touch(pos);
-      }
-    }
-    canvas.onmousemove = e => {
-      e.preventDefault();
-      if (e.buttons == 1) {
-        touch(getMousePos(e));
-      }
-    }
-    canvas.onmouseup = e => {
-      e.preventDefault();
-      endGestue(getMousePos(e));
-    }
-
-    canvas.addEventListener("touchstart", e => {
-      e.preventDefault();
-      const pos = getTouchPos(e.changedTouches[0]);
-      if (e.touches.length == 1) {
-        startGestue(pos);
-      } else {
-        gesture = null; //cancel guesture
-      }
-      touch(pos);
-    });
-    canvas.addEventListener("touchmove", e => {
-      e.preventDefault();
-      for (const t of e.touches) {
-        touch(getTouchPos(t));
-      }
-    });
-    canvas.addEventListener("touchend", e => {
-      e.preventDefault();
-      endGestue(getTouchPos(e.changedTouches[0]));
-    });
-    param.benchmark = ()=>{
-      $('#log').insertAdjacentHTML('afterbegin', ca.benchmark());
-    }
-    gui.add(param, 'benchmark');
-
-    function render() {
-      if (param.active) {
-        ca.step();
-      }
-      
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(canvas.clientWidth * dpr);
-      canvas.height = Math.round(canvas.clientHeight * dpr);      
-      const viewSize = [canvas.clientWidth, canvas.clientHeight];
-
-      if (gesture && gesture.sonic) {
-        const [x, y] = gesture.prevPos;
-        const state = ca.peek(x, y, viewSize);
-        sonic.play(state);
-      } else {
-        sonic.stop();
-      }
-
-      twgl.bindFramebufferInfo(gl);
-      ca.draw(viewSize, 'color');
-      sonic.draw(viewSize);
-      // if (lastMousePos) {
-      //   const d=200;
-      //   gl.viewport(0, 0, 500*dpr, 32*dpr);
-      //   ca.draw(viewSize, 'sonic');
-      // }
-      requestAnimationFrame(render);
-    }
-
-    requestAnimationFrame(render);
-  })
 </script>
