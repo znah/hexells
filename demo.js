@@ -181,7 +181,8 @@ export class Demo {
         this.ca.clearCircle(x, y, this.brushRadius, viewSize);
         const [w, h] = viewSize;
         const s = Math.max(w, h);
-        this.tryControl({touch: [(x-w/2)/s, (y-h/2)/s]});
+        const nx=(x-w/2)/s, ny = (y-h/2)/s;
+        this.tryControl({touch: [nx.toFixed(4), ny.toFixed(4)]});
     }
 
     endGestue(pos) {
