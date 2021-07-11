@@ -509,17 +509,35 @@ function setTensorUniforms(uniforms, name, tensor) {
     }
 }
 
+function decodeBase64(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) {
+        bytes[i] = bin.charCodeAt(i);
+    }
+    return bytes;
+}
+  
 function createDenseInfo(gl, params, onready) {
     const coefs = [params.scale, 127.0 / 255.0];
     const [in_n, out_n] = params.shape;
     const info = { coefs, layout: params.layout, in_n: in_n - 1, out_n,
         quantScaleZero: params.quant_scale_zero, ready: false };
+    // workaround against iOS WebKit bug (https://bugs.webkit.org/show_bug.cgi?id=138477)
+    // non-premultiplied PNG were decoded incorrectly
+    const img = UPNG.decode(decodeBase64(params.data.split(',')[1]));
+    const data = new Uint8Array(UPNG.toRGBA8(img)[0]);
     info.tex = twgl.createTexture(gl, {
-        minMag: gl.NEAREST, src: params.data, flipY: false, premultiplyAlpha: false,
+        width: img.width, height: img.height,
+        minMag: gl.NEAREST, src: data,//, flipY: false, premultiplyAlpha: false,
     }, ()=>{
+        //info.ready = true;
+        //onready();
+    });
+    setTimeout(()=>{
         info.ready = true;
         onready();
-    });
+    }, 0);
     return info;
 }
 
